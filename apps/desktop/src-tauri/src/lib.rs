@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, RunEvent, State};
 
-const SIDECAR_RESOURCE_PATH: &str = "depthwizard-core-runtime/depthwizard-core";
+const SIDECAR_RESOURCE_PATH: &str = "depthwizard-core-runtime/depthwizard-core.exe";
 const BOOT_RESPONSE_MAX_BYTES: usize = 8 * 1024;
 // The qualified Apple Silicon ONEDIR runtime currently needs ~41 s on a true cold launch. This
 // watchdog is a correctness/liveness bound, not the RT7 performance target, so keep enough margin
