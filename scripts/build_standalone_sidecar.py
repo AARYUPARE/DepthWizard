@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+import stat
 
 from depthwizard.geometry_prior.da3 import (
     DA3_CHECKPOINT_FILE,
@@ -38,6 +39,9 @@ OFFLINE_BUILD_BOOTSTRAP = ROOT / "scripts" / "offline_build_bootstrap"
 # bootstrap probe, but it must still complete before a runtime can be staged into the desktop app.
 DA3_IMPORT_CHECK_TIMEOUT_SECONDS = 300.0
 
+def _remove_readonly(func, path, exc_info):
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 def _source_git_sha() -> str:
     override = os.environ.get("DEPTHWIZARD_BUILD_GIT_SHA", "").strip()
@@ -380,6 +384,14 @@ def main() -> None:
         "pyproj",
         "--collect-data",
         "depth_anything_3",
+        "--add-data",
+        f"{DA3_VENDOR / 'depth_anything_3' / 'configs'}{os.pathsep}depth_anything_3/configs",
+        "--hidden-import",
+        "moviepy",
+        "--collect-submodules",
+        "moviepy",
+        "--exclude-module",
+        "xformers",
     ]
     for module_name in DA3_RUNTIME_DEPENDENCY_MODULES:
         command.extend(("--hidden-import", module_name))
@@ -394,7 +406,7 @@ def main() -> None:
         )
 
     if RUNTIME_DIR.exists():
-        shutil.rmtree(RUNTIME_DIR)
+        shutil.rmtree(RUNTIME_DIR, onexc=_remove_readonly)
     RUNTIME_DIR.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(built_runtime, RUNTIME_DIR, symlinks=True)
     packaged_model_dir = RUNTIME_DIR / PACKAGED_MODEL_RELATIVE_DIR
