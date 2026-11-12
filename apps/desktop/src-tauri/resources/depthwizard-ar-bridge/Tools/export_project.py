@@ -320,6 +320,9 @@ def main() -> int:
             "measurementCoordinateSpace": measurement_report["coordinate_space"],
             "measurementPixelOrigin": measurement_report.get("pixel_origin", "top_left_zero_based"),
             "measurementAxes": measurement_report.get("axes", {}),
+            "measurementRasterWidth": measurement_report.get("raster_width"),
+            "measurementRasterHeight": measurement_report.get("raster_height"),
+            "measurementMeshStride": measurement_report.get("mesh_stride"),
             "measurements": measurements,
         }
 
