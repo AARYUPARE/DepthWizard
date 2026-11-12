@@ -192,6 +192,36 @@ def validate_project_folder(folder: Path) -> dict[str, Any]:
     except OSError as exc:
         raise ProjectError("Could not resolve model path") from exc
     size = validate_usdz(asset_path)
+    measurements = clean_measurements(manifest.get("measurements"))
+    if measurements is not None:
+        if manifest.get("measurementSchemaVersion") != 1:
+            raise ProjectError("Unsupported measurement schema version")
+        if manifest.get("measurementCoordinateSpace") != "terrain_glb_local_bounds_v1":
+            raise ProjectError("Unsupported measurement coordinate-space contract")
+        if manifest.get("measurementPixelOrigin") != "top_left_zero_based":
+            raise ProjectError("Unsupported measurement pixel origin")
+        expected_axes = {
+            "x": "raster_columns_positive",
+            "y": "mesh_elevation_up",
+            "z": "negative_raster_rows",
+        }
+        if manifest.get("measurementAxes") != expected_axes:
+            raise ProjectError("Measurement axis contract is missing or invalid")
+        width, height = manifest.get("measurementRasterWidth"), manifest.get("measurementRasterHeight")
+        stride = manifest.get("measurementMeshStride")
+        if (isinstance(width, bool) or not isinstance(width, int) or width < 2 or
+                isinstance(height, bool) or not isinstance(height, int) or height < 2 or
+                isinstance(stride, bool) or not isinstance(stride, int) or stride < 1):
+            raise ProjectError("Measurement raster dimensions or mesh stride are invalid")
+        product = manifest.get("surfaceProduct")
+        units = manifest.get("verticalUnits", manifest.get("units"))
+        expected_units = "m" if product == "dsm" else "relative" if product == "rdsm" else None
+        if expected_units is None or units != expected_units:
+            raise ProjectError("Project surface product and vertical units are inconsistent")
+        if any(point["type"] != product or point["units"] != expected_units or
+               point["pixelX"] >= width or point["pixelY"] >= height
+               for point in measurements):
+            raise ProjectError("Measurement point does not match the project's source raster")
     clean = {
         "id": project_id,
         "name": manifest["name"][:160],
@@ -202,7 +232,7 @@ def validate_project_folder(folder: Path) -> dict[str, Any]:
         "sourceImage": str(manifest.get("sourceImage") or "")[:255] or None,
         "elevationMode": str(manifest.get("elevationMode") or "")[:80] or None,
         "units": str(manifest.get("units") or "")[:80] or None,
-        "measurements": clean_measurements(manifest.get("measurements")),
+        "measurements": measurements,
         "modelSizeBytes": size,
         "sha256": sha256_file(asset_path),
     }
