@@ -645,16 +645,20 @@ export function App() {
     Boolean(previewUrl) &&
     !previewLoading &&
     !previewError;
+  const rasterMeasurementFallback =
+    (activeTool === "Measure" || activeTool === "Profiles") && geometryReady && activeView !== "3D Terrain";
+  const rasterStructureFallback =
+    activeTool === "Structures" && calibrationReady && activeView !== "3D Terrain";
   const analystInteractive =
     !demoMode && Boolean(projectDir) && geometryReady && rasterSurfaceReady;
   const projectAnalystInteractive =
     !demoMode && Boolean(projectDir) && geometryReady;
-  const terrainToolInteractive =
-    projectAnalystInteractive &&
-    (activeTool === "Project" ||
-      activeTool === "Measure" ||
-      activeTool === "Profiles" ||
-      (activeTool === "Structures" && calibrationReady));
+  const terrainToolInteractive = projectAnalystInteractive && (
+    activeTool === "Project"
+    || activeTool === "Measure"
+    || activeTool === "Profiles"
+    || (activeTool === "Structures" && calibrationReady)
+  );
   const terrainAnalysisPath = useMemo<NormalizedPoint[]>(() => {
     if (activeTool === "Structures" && structurePolygon.length >= 2) {
       return structurePolygon.length >= 3
@@ -2283,24 +2287,12 @@ const stopArBridge = async () => {
               sourceWidth={metadata?.width}
               groundSampleDistanceM={metadata?.ground_sample_distance_x}
               cursorPoint={probe?.point}
-              lineStart={
-                activeTool === "Measure" || activeTool === "Profiles"
-                  ? lineStart
-                  : null
-              }
-              lineEnd={
-                activeTool === "Measure" || activeTool === "Profiles"
-                  ? lineEnd
-                  : null
-              }
-              polygonPoints={
-                activeTool === "Structures" ? structurePolygon : []
-              }
-              polygonClosed={
-                activeTool === "Structures" && Boolean(structureHeight)
-              }
+              lineStart={rasterMeasurementFallback ? lineStart : null}
+              lineEnd={rasterMeasurementFallback ? lineEnd : null}
+              polygonPoints={rasterStructureFallback ? structurePolygon : []}
+              polygonClosed={rasterStructureFallback && Boolean(structureHeight)}
               onPolygonChange={
-                activeTool === "Structures"
+                rasterStructureFallback
                   ? (points) => {
                       setStructureHeight(null);
                       setStructurePolygon(points);
