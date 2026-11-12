@@ -150,13 +150,18 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
     value_minimum = float(np.min(sampled_raw_values))
     value_maximum = float(np.max(sampled_raw_values))
     value_range = value_maximum - value_minimum
+    if value_range > 1e-12 and mesh_range <= 0.0:
+        raise RuntimeError("display terrain elevation is not a positive monotonic transform of source values")
 
     row_groups = np.array_split(np.arange(len(rows)), grid_size)
     col_groups = np.array_split(np.arange(len(cols)), grid_size)
     points: list[TerrainMeasurementPoint] = []
     feature_cells = {0, grid_size // 2, grid_size - 1}
     source_label = "Persisted DSM raster" if product == "dsm" else "Persisted relative DSM raster"
-    units: Literal["m", "relative"] = "m" if product == "dsm" else "relative"
+    units: Literal["m", "relative"] = report.vertical_units
+    expected_units = "m" if product == "dsm" else "relative"
+    if units != expected_units:
+        raise RuntimeError("terrain mesh vertical units do not match the persisted surface product")
 
     for grid_row, row_group in enumerate(row_groups):
         if row_group.size == 0:
