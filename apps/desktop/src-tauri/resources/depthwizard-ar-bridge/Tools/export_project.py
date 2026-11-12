@@ -329,6 +329,8 @@ def main() -> int:
             "measurementRasterWidth": measurement_report.get("raster_width"),
             "measurementRasterHeight": measurement_report.get("raster_height"),
             "measurementMeshStride": measurement_report.get("mesh_stride"),
+            "measurementValueMinimum": measurement_report.get("value_minimum"),
+            "measurementValueMaximum": measurement_report.get("value_maximum"),
             "measurementSourceSurfaceSha256": measurement_report.get("surface_sha256"),
             "measurementMeshSha256": measurement_report.get("mesh_sha256"),
             "measurementBuildConfigSha256": measurement_report.get("build_config_sha256"),
