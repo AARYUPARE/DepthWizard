@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
-from affine import Affine
 from fastapi.testclient import TestClient
 from rasterio.transform import from_origin
 
@@ -41,10 +40,8 @@ def _write_rasters(root: Path, product: str) -> tuple[Path, Path, np.ndarray]:
 
     if product == "dsm":
         surface_values = (510.0 + columns * 0.12 + rows * 0.08 + np.sin(columns / 5.0)).astype(np.float32)
-        units = "m"
     else:
         surface_values = (-2.5 + columns * 0.03 + rows * 0.01 + np.sin(columns / 6.0) * 0.4).astype(np.float32)
-        units = "relative"
 
     surface = root / f"{product}.tif"
     nodata = -9999.0
