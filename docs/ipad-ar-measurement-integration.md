@@ -56,10 +56,12 @@ DSM values retain metre units only when the source surface is a metric DSM. rDSM
 `terrain_glb_local_bounds_v1` defines fractions in the exported LOD0 GLB local bounding box, not geographic coordinates, not world coordinates, and not physical metres:
 
 - `x = column / (raster_width - 1)`
-- `y = (display_elevation - sampled_lod0_min) / (sampled_lod0_max - sampled_lod0_min)` (0.5 when the range is zero)
+- `y = (value - measurementValueMinimum) / (measurementValueMaximum - measurementValueMinimum)` (0.5 when the range is zero); because the mesh display elevation is a positive affine transform of the same source values, this is the same normalized Y as the visible LOD0 mesh
 - `z = 1 - row / (raster_height - 1)`
 
 The mesh uses positive X for raster columns, positive Y for elevation up, and negative Z for raster rows. The vertical fraction uses the sampled LOD0 vertices, not all raster pixels, so it shares the mesh's display bounds when the LOD is decimated. Positions are dimensionless; the iPad maps them into the loaded USDZ entity's local visual bounds after the model is normalized for AR tabletop viewing.
+
+The manifest carries `measurementValueMinimum` and `measurementValueMaximum`, computed over the valid sampled LOD0 vertices. Both bridge validators recompute the expected normalized Y from those raw-value bounds and reject a pin with a mismatched height. No relative-elevation value is interpreted as metres.
 
 Before a project is exported, the exporter verifies:
 - project ID, surface product and vertical units match;
@@ -67,7 +69,7 @@ Before a project is exported, the exporter verifies:
 - the measurement LOD0 SHA-256 equals the exact GLB LOD0 download digest;
 - the measurement build-configuration digest equals the mesh report.
 
-The package validator and both LAN bridge implementations then validate the schema, exact coordinate-space and axes, source hashes, dimensions, stride, unique IDs, finite values, source product/units, pixel bounds, pixel-to-normalized X/Z equality, and membership of each pixel in the declared LOD0 sample grid. A bad or stale measurement payload fails closed rather than producing misplaced pins.
+The package validator and both LAN bridge implementations then validate the schema, exact coordinate-space and axes, SHA-256 digest syntax and mesh-digest consistency, dimensions, stride, unique IDs, finite values, source product/units, pixel bounds, pixel-to-normalized X/Z equality, pixel-to-normalized Y equality, and membership of each pixel in the declared LOD0 sample grid. The bridges do not claim to cryptographically re-derive the original raster or GLB from these metadata fields; the exporter is the stage that checks source-surface, mesh-report, and actual GLB bytes against one another. A bad or stale measurement payload fails closed rather than producing misplaced pins.
 
 ## Desktop sidecar rebuild requirement
 
