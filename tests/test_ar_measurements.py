@@ -137,6 +137,10 @@ def test_relative_measurements_keep_raw_relative_values_and_units(tmp_path: Path
         assert point.type == "rdsm"
         assert point.value == float(values[point.pixel_y, point.pixel_x])
         assert -10.0 < point.value < 10.0
+        expected_y = 0.5 if report.value_maximum == report.value_minimum else (
+            (point.value - report.value_minimum) / (report.value_maximum - report.value_minimum)
+        )
+        assert np.isclose(point.normalized_position.y, expected_y)
         assert 0.0 <= point.normalized_position.y <= 1.0
 
 
