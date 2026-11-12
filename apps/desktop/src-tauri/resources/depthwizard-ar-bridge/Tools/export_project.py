@@ -160,6 +160,12 @@ def main() -> int:
     )
     if lod0 is None:
         raise RuntimeError("The project has no level-0 terrain mesh.")
+    if measurement_report.get("surface_sha256") != report.get("surface_sha256"):
+        raise RuntimeError("Measurement report was generated from a different source surface.")
+    if measurement_report.get("mesh_sha256") != lod0.get("sha256"):
+        raise RuntimeError("Measurement report was generated for a different LOD0 mesh.")
+    if measurement_report.get("build_config_sha256") != report.get("build_config_sha256"):
+        raise RuntimeError("Measurement report build configuration does not match the terrain mesh.")
 
     expected_sha = str(lod0.get("sha256", "")).lower()
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
@@ -323,6 +329,9 @@ def main() -> int:
             "measurementRasterWidth": measurement_report.get("raster_width"),
             "measurementRasterHeight": measurement_report.get("raster_height"),
             "measurementMeshStride": measurement_report.get("mesh_stride"),
+            "measurementSourceSurfaceSha256": measurement_report.get("surface_sha256"),
+            "measurementMeshSha256": measurement_report.get("mesh_sha256"),
+            "measurementBuildConfigSha256": measurement_report.get("build_config_sha256"),
             "measurements": measurements,
         }
 
