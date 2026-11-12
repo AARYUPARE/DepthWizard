@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import math
 import re
 import secrets
 import struct
@@ -102,6 +103,61 @@ def validate_usdz(path: Path) -> int:
     return size
 
 
+def clean_measurements(value: Any) -> list[dict[str, Any]] | None:
+    """Validate and expose the bounded, local-coordinate measurement payload."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or not 1 <= len(value) <= 500:
+        raise ProjectError("Measurements must contain between 1 and 500 entries")
+    clean: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for point in value:
+        if not isinstance(point, dict):
+            raise ProjectError("Measurement entries must be JSON objects")
+        identifier = point.get("id")
+        if not isinstance(identifier, str) or not PROJECT_ID_RE.fullmatch(identifier) or identifier in seen:
+            raise ProjectError("Measurement IDs must be unique safe identifiers")
+        if point.get("type") not in {"dsm", "rdsm"}:
+            raise ProjectError("Measurement type must be dsm or rdsm")
+        expected_units = "m" if point["type"] == "dsm" else "relative"
+        if point.get("units") != expected_units:
+            raise ProjectError("Measurement units do not match the surface type")
+        value_number = point.get("value")
+        if isinstance(value_number, bool) or not isinstance(value_number, (int, float)) or not math.isfinite(value_number):
+            raise ProjectError("Measurement values must be finite numbers")
+        label, source = point.get("label"), point.get("source")
+        if not all(isinstance(item, str) and item.strip() and len(item) <= 120 for item in (label, source)):
+            raise ProjectError("Measurement labels and sources must be non-empty strings up to 120 characters")
+        if type(point.get("featured")) is not bool:
+            raise ProjectError("Measurement featured flags must be booleans")
+        pixel_x, pixel_y = point.get("pixelX"), point.get("pixelY")
+        if (isinstance(pixel_x, bool) or not isinstance(pixel_x, int) or pixel_x < 0 or
+                isinstance(pixel_y, bool) or not isinstance(pixel_y, int) or pixel_y < 0):
+            raise ProjectError("Measurement pixel coordinates must be non-negative integers")
+        position = point.get("normalizedPosition")
+        if not isinstance(position, dict):
+            raise ProjectError("Measurement normalizedPosition must be an object")
+        coordinates = {axis: position.get(axis) for axis in ("x", "y", "z")}
+        if any(isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)) or
+               not math.isfinite(coordinate) or not 0.0 <= coordinate <= 1.0
+               for coordinate in coordinates.values()):
+            raise ProjectError("Measurement normalized positions must be finite fractions in [0, 1]")
+        clean.append({
+            "id": identifier,
+            "label": label,
+            "value": float(value_number),
+            "units": expected_units,
+            "source": source,
+            "type": point["type"],
+            "pixelX": pixel_x,
+            "pixelY": pixel_y,
+            "normalizedPosition": {axis: float(coordinate) for axis, coordinate in coordinates.items()},
+            "featured": point["featured"],
+        })
+        seen.add(identifier)
+    return clean
+
+
 def validate_project_folder(folder: Path) -> dict[str, Any]:
     if folder.is_symlink() or not folder.is_dir():
         raise ProjectError("Project folder must be a real directory")
@@ -146,6 +202,7 @@ def validate_project_folder(folder: Path) -> dict[str, Any]:
         "sourceImage": str(manifest.get("sourceImage") or "")[:255] or None,
         "elevationMode": str(manifest.get("elevationMode") or "")[:80] or None,
         "units": str(manifest.get("units") or "")[:80] or None,
+        "measurements": clean_measurements(manifest.get("measurements")),
         "modelSizeBytes": size,
         "sha256": sha256_file(asset_path),
     }
