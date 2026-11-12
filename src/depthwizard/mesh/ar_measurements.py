@@ -49,6 +49,9 @@ class ProjectMeasurementReport(BaseModel):
     raster_width: int = Field(ge=2)
     raster_height: int = Field(ge=2)
     mesh_stride: int = Field(ge=1)
+    surface_sha256: str
+    mesh_sha256: str
+    build_config_sha256: str
     points: list[TerrainMeasurementPoint] = Field(max_length=500)
     semantics: str = "sampled_from_persisted_primary_surface_at_exported_lod0_vertices"
 
@@ -98,6 +101,9 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
     stride = next((lod.stride for lod in report.lods if lod.level == 0), None)
     if stride is None:
         raise ValueError("terrain mesh has no LOD0 stride")
+    lod0 = next((lod for lod in report.lods if lod.level == 0), None)
+    if lod0 is None:
+        raise ValueError("terrain mesh has no LOD0 artifact")
 
     with rasterio.open(surface_path) as src:
         if src.width != report.raster_width or src.height != report.raster_height:
@@ -215,5 +221,8 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
         raster_width=int(raw.shape[1]),
         raster_height=int(raw.shape[0]),
         mesh_stride=int(stride),
+        surface_sha256=surface_sha,
+        mesh_sha256=lod0.sha256,
+        build_config_sha256=report.build_config_sha256,
         points=points,
     )
