@@ -2211,9 +2211,7 @@ const stopArBridge = async () => {
               resetToken={cameraResetToken}
               screenshotRequest={terrainScreenshotRequest}
               screenshotCaption={`${projectName} · ${calibrationReady ? "Metric DSM" : "Relative rDSM"} · ${activeLayer} · Z ${verticalExaggeration}×\nBuild ${window.__DEPTHWIZARD_RUNTIME__?.buildGitSha ?? "development-unversioned"}`}
-              onSelectPoint={
-                terrainToolInteractive ? analyzeRasterPoint : undefined
-              }
+              onSelectPoint={terrainToolInteractive ? analyzeRasterPoint : undefined}
               onPerformance={setTerrainPerformance}
               onRenderState={(state) => {
                 setTerrainRenderState(state);
