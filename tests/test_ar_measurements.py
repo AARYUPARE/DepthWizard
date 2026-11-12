@@ -65,9 +65,9 @@ def _write_rasters(root: Path, product: str) -> tuple[Path, Path, np.ndarray]:
 
 
 def _build_project(tmp_path: Path, product: str) -> tuple[Path, np.ndarray]:
-    source, surface, values = _write_rasters(tmp_path, product)
     project_dir = tmp_path / "project"
     project_dir.mkdir()
+    source, surface, values = _write_rasters(project_dir, product)
     manifest = ProjectManifest.create_or_load(project_dir, source)
     manifest.set_identity(
         source_sha256=sha256_file(source),
