@@ -67,7 +67,7 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
         return True, "legacy project without AR measurements"
     if not isinstance(measurements, list) or not 1 <= len(measurements) <= 500:
         return False, "measurements must contain between 1 and 500 entries"
-    if data.get("measurementSchemaVersion") != 1:
+    if type(data.get("measurementSchemaVersion")) is not int or data.get("measurementSchemaVersion") != 1:
         return False, "unsupported measurement schema version"
     if data.get("measurementCoordinateSpace") != "terrain_glb_local_bounds_v1":
         return False, "unsupported measurement coordinate-space contract"
@@ -124,6 +124,15 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
             coordinate = position.get(axis)
             if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)) or not math.isfinite(coordinate) or not 0 <= coordinate <= 1:
                 return False, f"measurement normalizedPosition.{axis} must be within [0, 1]"
+        expected_x = point["pixelX"] / (raster_width - 1)
+        expected_z = 1.0 - point["pixelY"] / (raster_height - 1)
+        if not math.isclose(position["x"], expected_x, rel_tol=0.0, abs_tol=1e-6):
+            return False, "measurement normalized X does not match its source raster column"
+        if not math.isclose(position["z"], expected_z, rel_tol=0.0, abs_tol=1e-6):
+            return False, "measurement normalized Z does not match its source raster row"
+        if ((point["pixelX"] % stride != 0 and point["pixelX"] != raster_width - 1) or
+                (point["pixelY"] % stride != 0 and point["pixelY"] != raster_height - 1)):
+            return False, "measurement pixel is not a vertex in the exported LOD0 grid"
         seen.add(identifier)
     return True, f"{len(measurements)} validated terrain measurements"
 
