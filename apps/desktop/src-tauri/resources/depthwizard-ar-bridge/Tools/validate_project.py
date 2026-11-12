@@ -6,6 +6,7 @@ import re
 import sys
 import struct
 import zipfile
+import math
 from pathlib import Path, PurePosixPath
 
 MAX_BYTES = 500 * 1024 * 1024
@@ -60,6 +61,53 @@ def inspect_usdz(asset: Path) -> tuple[bool, str]:
         return False, f"could not read USDZ package: {exc}"
     return True, f"{size:,} bytes, aligned USDZ archive"
 
+def validate_measurements(data: dict) -> tuple[bool, str]:
+    measurements = data.get("measurements")
+    if measurements is None:
+        return True, "legacy project without AR measurements"
+    if not isinstance(measurements, list) or not 1 <= len(measurements) <= 500:
+        return False, "measurements must contain between 1 and 500 entries"
+    if data.get("measurementSchemaVersion") != 1:
+        return False, "unsupported measurement schema version"
+    if data.get("measurementCoordinateSpace") != "terrain_glb_local_bounds_v1":
+        return False, "unsupported measurement coordinate-space contract"
+    seen = set()
+    product = data.get("surfaceProduct")
+    units = data.get("verticalUnits", data.get("units"))
+    expected_units = "m" if product == "dsm" else "relative" if product == "rdsm" else None
+    if expected_units is None or units != expected_units:
+        return False, "measurement surface product and vertical units are inconsistent"
+    for point in measurements:
+        if not isinstance(point, dict):
+            return False, "measurement entries must be objects"
+        identifier = point.get("id")
+        if not isinstance(identifier, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,80}", identifier) is None or identifier in seen:
+            return False, "measurement IDs must be unique safe identifiers"
+        if point.get("type") != product or point.get("units") != expected_units:
+            return False, "measurement point surface type or units do not match the project"
+        value = point.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return False, "measurement values must be finite numbers"
+        for key in ("label", "source"):
+            if not isinstance(point.get(key), str) or not point[key].strip() or len(point[key]) > 120:
+                return False, f"measurement {key} must be a non-empty string of at most 120 characters"
+        if type(point.get("featured")) is not bool:
+            return False, "measurement featured flag must be boolean"
+        for key in ("pixelX", "pixelY"):
+            coordinate = point.get(key)
+            if isinstance(coordinate, bool) or not isinstance(coordinate, int) or coordinate < 0:
+                return False, f"measurement {key} must be a non-negative integer"
+        position = point.get("normalizedPosition")
+        if not isinstance(position, dict):
+            return False, "measurement normalizedPosition must be an object"
+        for axis in ("x", "y", "z"):
+            coordinate = position.get(axis)
+            if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)) or not math.isfinite(coordinate) or not 0 <= coordinate <= 1:
+                return False, f"measurement normalizedPosition.{axis} must be within [0, 1]"
+        seen.add(identifier)
+    return True, f"{len(measurements)} validated terrain measurements"
+
+
 def validate(folder: Path) -> tuple[bool, str]:
     if folder.is_symlink() or not folder.is_dir():
         return False, "project folder must be a real directory"
@@ -94,7 +142,10 @@ def validate(folder: Path) -> tuple[bool, str]:
     ok, details = inspect_usdz(asset)
     if not ok:
         return False, details
-    return True, f"{data['name']} -> {name} ({details})"
+    measurement_ok, measurement_details = validate_measurements(data)
+    if not measurement_ok:
+        return False, measurement_details
+    return True, f"{data['name']} -> {name} ({details}; {measurement_details})"
 
 def main() -> int:
     if len(sys.argv) != 2:
