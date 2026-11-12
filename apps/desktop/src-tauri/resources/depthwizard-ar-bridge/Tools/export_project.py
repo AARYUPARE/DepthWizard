@@ -116,6 +116,44 @@ def main() -> int:
     )
     report = json.loads(report_data.decode("utf-8"))
 
+    measurement_data, _ = request_bytes(
+        api_url(args.api_base, "/v1/projects/measurements", project_dir),
+        token,
+    )
+    measurement_report = json.loads(measurement_data.decode("utf-8"))
+    if measurement_report.get("project_id") != report.get("project_id"):
+        raise RuntimeError("Measurement report belongs to a different scientific project.")
+    if measurement_report.get("surface_product") != report.get("surface_product"):
+        raise RuntimeError("Measurement report surface does not match the exported terrain.")
+    if measurement_report.get("vertical_units") != report.get("vertical_units"):
+        raise RuntimeError("Measurement report units do not match the exported terrain.")
+    if measurement_report.get("coordinate_space") != "terrain_glb_local_bounds_v1":
+        raise RuntimeError("Unsupported AR measurement coordinate-space contract.")
+
+    measurements = []
+    for point in measurement_report.get("points", []):
+        position = point.get("normalized_position")
+        if not isinstance(position, dict):
+            raise RuntimeError("Measurement point is missing its normalized terrain position.")
+        measurements.append({
+            "id": point["id"],
+            "label": point["label"],
+            "value": point["value"],
+            "units": point["units"],
+            "source": point["source"],
+            "type": point["type"],
+            "pixelX": point["pixel_x"],
+            "pixelY": point["pixel_y"],
+            "normalizedPosition": {
+                "x": position["x"],
+                "y": position["y"],
+                "z": position["z"],
+            },
+            "featured": point["featured"],
+        })
+    if not measurements or len(measurements) > 500:
+        raise RuntimeError("AR measurement report must contain between 1 and 500 points.")
+
     lod0 = next(
         (item for item in report.get("lods", []) if item.get("level") == 0),
         None,
@@ -278,6 +316,11 @@ def main() -> int:
             "sourceMeshSha256": actual_sha,
             "modelSha256": model_sha,
             "semantics": report.get("semantics"),
+            "measurementSchemaVersion": measurement_report.get("schema_version", 1),
+            "measurementCoordinateSpace": measurement_report["coordinate_space"],
+            "measurementPixelOrigin": measurement_report.get("pixel_origin", "top_left_zero_based"),
+            "measurementAxes": measurement_report.get("axes", {}),
+            "measurements": measurements,
         }
 
         (staging_dir / "project.json").write_text(
