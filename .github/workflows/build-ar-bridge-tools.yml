@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: depthwizard-ar-tools-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-refresh-resources:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -74,6 +78,11 @@ jobs:
             exit 0
           }
           git commit -m "build: refresh Windows AR bridge executables [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw "Could not commit refreshed AR tools." }
+          git fetch origin "$env:HEAD_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest PR branch tip." }
+          git rebase "origin/$env:HEAD_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw "Could not rebase refreshed AR tools onto the latest PR branch. Resolve binary-build concurrency before retrying." }
           git push "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" "HEAD:refs/heads/$env:HEAD_BRANCH"
 
       - name: Upload refreshed Windows resources
