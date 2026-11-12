@@ -49,6 +49,8 @@ class ProjectMeasurementReport(BaseModel):
     raster_width: int = Field(ge=2)
     raster_height: int = Field(ge=2)
     mesh_stride: int = Field(ge=1)
+    value_minimum: float
+    value_maximum: float
     surface_sha256: str
     mesh_sha256: str
     build_config_sha256: str
@@ -139,11 +141,15 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
     # match the actual exported geometry even when LOD0 has stride > 1.
     sampled_mesh_elevation = mesh_elevation[np.ix_(rows, cols)]
     mesh_values = sampled_mesh_elevation[sampled_valid]
-    if mesh_values.size == 0:
+    sampled_raw_values = raw[np.ix_(rows, cols)][sampled_valid].astype(np.float64)
+    if mesh_values.size == 0 or sampled_raw_values.size == 0:
         raise ValueError("LOD0 terrain has no valid elevation vertices for measurement placement")
     mesh_min = float(np.min(mesh_values))
     mesh_max = float(np.max(mesh_values))
     mesh_range = mesh_max - mesh_min
+    value_minimum = float(np.min(sampled_raw_values))
+    value_maximum = float(np.max(sampled_raw_values))
+    value_range = value_maximum - value_minimum
 
     row_groups = np.array_split(np.arange(len(rows)), grid_size)
     col_groups = np.array_split(np.arange(len(cols)), grid_size)
@@ -188,10 +194,9 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
             row = int(source_rows[chosen])
             col = int(source_cols[chosen])
             value = float(raw[row, col])
-            display_height = float(mesh_elevation[row, col])
             normalized_y = (
-                0.5 if mesh_range <= 1e-12
-                else min(1.0, max(0.0, (display_height - mesh_min) / mesh_range))
+                0.5 if value_range <= 1e-12
+                else min(1.0, max(0.0, (value - value_minimum) / value_range))
             )
             featured = grid_row in feature_cells and grid_col in feature_cells
             point_id = f"p{grid_row:02d}_{grid_col:02d}"
@@ -221,6 +226,8 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
         raster_width=int(raw.shape[1]),
         raster_height=int(raw.shape[0]),
         mesh_stride=int(stride),
+        value_minimum=value_minimum,
+        value_maximum=value_maximum,
         surface_sha256=surface_sha,
         mesh_sha256=lod0.sha256,
         build_config_sha256=report.build_config_sha256,
