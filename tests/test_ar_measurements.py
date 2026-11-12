@@ -10,7 +10,7 @@ from rasterio.transform import from_origin
 
 from depthwizard.contracts import ProjectMeshBuildRequest
 from depthwizard.mesh.ar_measurements import build_project_measurements
-from depthwizard.mesh.project_mesh import build_project_mesh
+from depthwizard.mesh.project_mesh import build_project_mesh, load_project_mesh
 from depthwizard.pipeline.project import ProjectManifest
 from depthwizard.provenance.manifest import sha256_file
 from depthwizard.service import app
@@ -104,16 +104,11 @@ def test_measurements_are_spread_and_map_to_lod0_vertices(tmp_path: Path) -> Non
     assert 80 <= len(report.points) <= 100
     assert sum(point.featured for point in report.points) == 9
 
-    rows = np.arange(0, values.shape[0], report.mesh_stride, dtype=np.int64)
-    if rows[-1] != values.shape[0] - 1:
-        rows = np.append(rows, values.shape[0] - 1)
-    columns = np.arange(0, values.shape[1], report.mesh_stride, dtype=np.int64)
-    if columns[-1] != values.shape[1] - 1:
-        columns = np.append(columns, values.shape[1] - 1)
-    sampled_values = values[np.ix_(rows, columns)]
-    sampled_valid = sampled_values != -9999.0
-    mesh_min = float(sampled_values[sampled_valid].min())
-    mesh_max = float(sampled_values[sampled_valid].max())
+    mesh_report = load_project_mesh(project_dir)
+    lod0 = next(item for item in mesh_report.lods if item.level == 0)
+    assert report.mesh_sha256 == lod0.sha256
+    assert report.surface_sha256 == sha256_file(project_dir / "dsm.tif")
+    assert report.build_config_sha256 == mesh_report.build_config_sha256
 
     for point in report.points:
         assert 0 <= point.pixel_x < values.shape[1]
@@ -122,6 +117,8 @@ def test_measurements_are_spread_and_map_to_lod0_vertices(tmp_path: Path) -> Non
         assert point.value == float(values[point.pixel_y, point.pixel_x])
         assert point.units == "m"
         assert point.type == "dsm"
+        assert point.pixel_x % report.mesh_stride == 0 or point.pixel_x == values.shape[1] - 1
+        assert point.pixel_y % report.mesh_stride == 0 or point.pixel_y == values.shape[0] - 1
         assert np.isclose(point.normalized_position.x, point.pixel_x / (values.shape[1] - 1))
         assert np.isclose(point.normalized_position.z, 1.0 - point.pixel_y / (values.shape[0] - 1))
         expected_y = (point.value - report.value_minimum) / (report.value_maximum - report.value_minimum)
