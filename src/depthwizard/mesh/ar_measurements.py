@@ -128,7 +128,13 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
     else:
         mesh_elevation = raw.astype(np.float64)
 
-    mesh_values = mesh_elevation[valid]
+    # RealityKit positions are derived from the sampled LOD0 vertex buffer, not every
+    # source-raster pixel. Use the same sampled grid for the vertical bounds so pin Y fractions
+    # match the actual exported geometry even when LOD0 has stride > 1.
+    sampled_mesh_elevation = mesh_elevation[np.ix_(rows, cols)]
+    mesh_values = sampled_mesh_elevation[sampled_valid]
+    if mesh_values.size == 0:
+        raise ValueError("LOD0 terrain has no valid elevation vertices for measurement placement")
     mesh_min = float(np.min(mesh_values))
     mesh_max = float(np.max(mesh_values))
     mesh_range = mesh_max - mesh_min
