@@ -72,6 +72,14 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
     if data.get("measurementCoordinateSpace") != "terrain_glb_local_bounds_v1":
         return False, "unsupported measurement coordinate-space contract"
     seen = set()
+    raster_width = data.get("measurementRasterWidth")
+    raster_height = data.get("measurementRasterHeight")
+    if (isinstance(raster_width, bool) or not isinstance(raster_width, int) or raster_width < 2 or
+            isinstance(raster_height, bool) or not isinstance(raster_height, int) or raster_height < 2):
+        return False, "measurement raster dimensions are missing or invalid"
+    stride = data.get("measurementMeshStride")
+    if isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
+        return False, "measurement mesh stride is missing or invalid"
     product = data.get("surfaceProduct")
     units = data.get("verticalUnits", data.get("units"))
     expected_units = "m" if product == "dsm" else "relative" if product == "rdsm" else None
@@ -97,6 +105,8 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
             coordinate = point.get(key)
             if isinstance(coordinate, bool) or not isinstance(coordinate, int) or coordinate < 0:
                 return False, f"measurement {key} must be a non-negative integer"
+        if point["pixelX"] >= raster_width or point["pixelY"] >= raster_height:
+            return False, "measurement pixel coordinate is outside the source raster"
         position = point.get("normalizedPosition")
         if not isinstance(position, dict):
             return False, "measurement normalizedPosition must be an object"
