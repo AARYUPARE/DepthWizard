@@ -43,6 +43,7 @@ from depthwizard.export.project_package import build_project_export, load_projec
 from depthwizard.geometry_prior.da3 import DA3MonocularPrior
 from depthwizard.io.raster import inspect_raster
 from depthwizard.mesh.project_mesh import build_project_mesh, load_project_mesh
+from depthwizard.mesh.ar_measurements import build_project_measurements, ProjectMeasurementReport
 from depthwizard.pipeline.project import ProjectManifest
 from depthwizard.pipeline.runtime import ProductionElevationRuntime
 from depthwizard.visualization.layer_legend import project_layer_legend
@@ -463,6 +464,23 @@ def project_structure_height(
 def project_mesh_build(request: ProjectMeshBuildRequest) -> ProjectMeshReport:
     try:
         return build_project_mesh(request)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (OSError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/projects/measurements",
+    response_model=ProjectMeasurementReport,
+    dependencies=[Depends(_session_guard)],
+)
+def project_measurements(project_dir: Path) -> ProjectMeasurementReport:
+    """Return a bounded set of source-raster samples aligned to the exported LOD0 mesh."""
+    try:
+        return build_project_measurements(project_dir)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:

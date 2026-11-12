@@ -1,6 +1,6 @@
 use rand::rngs::OsRng;
 use rand::RngCore;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
@@ -76,9 +76,315 @@ impl SidecarState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArBridgeInfo {
+    status: String,
+    port: u16,
+    pairing_code: String,
+    addresses: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArExportResult {
+    status: String,
+    project_id: String,
+    project_name: String,
+    project_path: String,
+    model_path: String,
+    model_sha256: String,
+    model_bytes: u64,
+    elevation_mode: String,
+    units: String,
+    horizontal_units: String,
+}
+
+struct ArBridgeProcess {
+    child: Child,
+    info: ArBridgeInfo,
+    ready_file: PathBuf,
+}
+
+struct ArBridgeState {
+    process: Mutex<Option<ArBridgeProcess>>,
+}
+
+impl ArBridgeState {
+    fn shutdown(&self) {
+        if let Ok(mut guard) = self.process.lock() {
+            if let Some(mut process) = guard.take() {
+                terminate_child(&mut process.child);
+                let _ = fs::remove_file(process.ready_file);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn runtime_config(state: State<'_, SidecarState>) -> RuntimeConfig {
     state.runtime.clone()
+}
+
+#[tauri::command]
+fn start_ar_bridge(
+    app: AppHandle,
+    state: State<'_, ArBridgeState>,
+    projects_root: String,
+) -> Result<ArBridgeInfo, String> {
+    let mut guard = state
+        .process
+        .lock()
+        .map_err(|_| "AR bridge state is unavailable".to_string())?;
+
+    if let Some(process) = guard.as_mut() {
+        if process
+            .child
+            .try_wait()
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            return Ok(process.info.clone());
+        }
+
+        let mut process = guard.take().unwrap();
+        terminate_child(&mut process.child);
+        let _ = fs::remove_file(process.ready_file);
+    }
+
+    let root = PathBuf::from(projects_root)
+        .canonicalize()
+        .map_err(|e| format!("Invalid AR projects folder: {e}"))?;
+
+    if !root.is_dir() {
+        return Err("AR projects path is not a directory".into());
+    }
+
+    let executable = app
+        .path()
+        .resolve(
+            "depthwizard-ar-bridge/depthwizard-ar-bridge.exe",
+            BaseDirectory::Resource,
+        )
+        .map_err(|e| format!("Cannot locate AR bridge executable: {e}"))?;
+
+    if !executable.is_file() {
+        return Err(format!("AR bridge executable is missing: {executable:?}"));
+    }
+
+    let ready_file = std::env::temp_dir().join(format!(
+        "depthwizard-ar-ready-{}.json",
+        rand::random::<u64>()
+    ));
+
+    let mut child = Command::new(&executable)
+        .arg("--root")
+        .arg(&root)
+        .arg("--port")
+        .arg("0")
+        .arg("--ready-file")
+        .arg(&ready_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to launch AR bridge: {e}"))?;
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    let info = loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            let _ = fs::remove_file(&ready_file);
+            return Err(format!("AR bridge exited during startup: {status}"));
+        }
+
+        if ready_file.is_file() {
+            let parsed = fs::read(&ready_file)
+                .map_err(|e| format!("Cannot read AR bridge startup response: {e}"))
+                .and_then(|bytes| {
+                    serde_json::from_slice::<ArBridgeInfo>(&bytes)
+                        .map_err(|e| format!("Invalid AR bridge startup response: {e}"))
+                });
+
+            match parsed {
+                Ok(info) if info.status == "ready" && info.port != 0 => break info,
+                Ok(_) => {
+                    terminate_child(&mut child);
+                    let _ = fs::remove_file(&ready_file);
+                    return Err("AR bridge returned invalid startup information".into());
+                }
+                Err(error) => {
+                    terminate_child(&mut child);
+                    let _ = fs::remove_file(&ready_file);
+                    return Err(error);
+                }
+            }
+        }
+
+        if Instant::now() >= deadline {
+            terminate_child(&mut child);
+            let _ = fs::remove_file(&ready_file);
+            return Err("Timed out waiting for AR bridge startup".into());
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    };
+
+    *guard = Some(ArBridgeProcess {
+        child,
+        info: info.clone(),
+        ready_file,
+    });
+
+    Ok(info)
+}
+
+#[tauri::command]
+fn stop_ar_bridge(state: State<'_, ArBridgeState>) -> Result<(), String> {
+    let mut guard = state
+        .process
+        .lock()
+        .map_err(|_| "AR bridge state is unavailable".to_string())?;
+
+    if let Some(mut process) = guard.take() {
+        terminate_child(&mut process.child);
+        let _ = fs::remove_file(process.ready_file);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn create_ar_project(
+    app: AppHandle,
+    sidecar: State<'_, SidecarState>,
+    project_dir: String,
+    export_root: String,
+    blender_exe: String,
+) -> Result<ArExportResult, String> {
+    // Confirm the scientific sidecar is still running.
+    {
+        let mut guard = sidecar
+            .child
+            .lock()
+            .map_err(|_| "Scientific sidecar state is unavailable".to_string())?;
+
+        let child = guard
+            .as_mut()
+            .ok_or_else(|| "Scientific sidecar is not running".to_string())?;
+
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!("Scientific sidecar has exited: {status}"));
+        }
+    }
+
+    // Keep the session token inside the native process.
+    let api_base = sidecar.runtime.api_base.clone();
+    let session_token = sidecar.runtime.session_token.clone();
+
+    let project_dir = PathBuf::from(project_dir)
+        .canonicalize()
+        .map_err(|e| format!("Invalid scientific project folder: {e}"))?;
+
+    if !project_dir.is_dir() {
+        return Err("Scientific project path is not a directory".into());
+    }
+
+    let export_root = PathBuf::from(export_root);
+
+    let blender = PathBuf::from(blender_exe)
+        .canonicalize()
+        .map_err(|e| format!("Invalid Blender executable: {e}"))?;
+
+    if !blender.is_file() {
+        return Err("Blender executable was not found".into());
+    }
+
+    let project_name = project_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Cannot determine project name".to_string())?
+        .to_string();
+
+    let exporter = app
+        .path()
+        .resolve(
+            "depthwizard-ar-bridge/depthwizard-ar-export.exe",
+            BaseDirectory::Resource,
+        )
+        .map_err(|e| format!("Cannot locate AR exporter: {e}"))?;
+
+    let converter = app
+        .path()
+        .resolve(
+            "depthwizard-ar-bridge/Tools/convert_glb_to_usdz.py",
+            BaseDirectory::Resource,
+        )
+        .map_err(|e| format!("Cannot locate USDZ converter: {e}"))?;
+
+    let validator = app
+        .path()
+        .resolve(
+            "depthwizard-ar-bridge/depthwizard-ar-validator.exe",
+            BaseDirectory::Resource,
+        )
+        .map_err(|e| format!("Cannot locate AR validator: {e}"))?;
+
+    for (path, label) in [
+        (&exporter, "AR exporter"),
+        (&converter, "USDZ converter"),
+        (&validator, "AR validator"),
+    ] {
+        if !path.is_file() {
+            return Err(format!("{label} is missing: {path:?}"));
+        }
+    }
+
+    // Run the exporter off the async runtime thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = Command::new(&exporter)
+            .arg("--api-base")
+            .arg(&api_base)
+            .arg("--project-dir")
+            .arg(&project_dir)
+            .arg("--export-root")
+            .arg(&export_root)
+            .arg("--blender")
+            .arg(&blender)
+            .arg("--converter")
+            .arg(&converter)
+            .arg("--validator")
+            .arg(&validator)
+            .arg("--name")
+            .arg(&project_name)
+            .env("DEPTHWIZARD_SESSION_TOKEN", &session_token)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("Failed to launch AR exporter: {e}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            return Err(format!(
+                "AR export failed:\n{}",
+                if !stderr.trim().is_empty() {
+                    stderr.trim()
+                } else {
+                    stdout.trim()
+                }
+            ));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        serde_json::from_str::<ArExportResult>(stdout.trim())
+            .map_err(|e| format!("Invalid AR exporter response: {e}\n{stdout}"))
+    })
+    .await
+    .map_err(|e| format!("AR export task failed: {e}"))?
 }
 
 fn terminate_child(child: &mut Child) {
@@ -466,7 +772,12 @@ fn launch_sidecar(
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![runtime_config])
+        .invoke_handler(tauri::generate_handler![
+            runtime_config,
+            start_ar_bridge,
+            stop_ar_bridge,
+            create_ar_project
+        ])
         .setup(|app| {
             let port = reserve_loopback_port()?;
             let token = generate_session_token();
@@ -519,6 +830,11 @@ pub fn run() {
                 runtime,
                 acceptance_control_path,
             });
+
+            app.manage(ArBridgeState {
+                process: Mutex::new(None),
+            });
+
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -526,6 +842,10 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
+            if let Some(state) = app_handle.try_state::<ArBridgeState>() {
+                state.shutdown();
+            }
+
             if let Some(state) = app_handle.try_state::<SidecarState>() {
                 state.shutdown();
             }

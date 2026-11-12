@@ -31,7 +31,8 @@
       "icons/icon.png"
     ],
     "resources": {
-      "resources/depthwizard-core-runtime/": "depthwizard-core-runtime/"
+      "resources/depthwizard-core-runtime/": "depthwizard-core-runtime/",
+      "resources/depthwizard-ar-bridge/": "depthwizard-ar-bridge/"
     }
   }
 }

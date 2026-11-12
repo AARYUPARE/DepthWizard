@@ -1,0 +1,97 @@
+name: Build Windows iPad AR bridge tools
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/desktop/src-tauri/resources/depthwizard-ar-bridge/DesktopBridge/server.py"
+      - "apps/desktop/src-tauri/resources/depthwizard-ar-bridge/Tools/**"
+      - "depthwizard-ar-export.spec"
+      - ".github/workflows/build-ar-bridge-tools.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: depthwizard-ar-tools-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-refresh-resources:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2025
+    steps:
+      - name: Checkout pull request branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exporter build requirements
+        run: python -m pip install --disable-pip-version-check pyinstaller certifi
+
+      - name: Build updated AR exporter
+        run: python -m PyInstaller --clean --noconfirm depthwizard-ar-export.spec
+
+      - name: Build updated bridge and validator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bridge = "apps/desktop/src-tauri/resources/depthwizard-ar-bridge/DesktopBridge/server.py"
+          $validator = "apps/desktop/src-tauri/resources/depthwizard-ar-bridge/Tools/validate_project.py"
+          python -m PyInstaller --clean --noconfirm --onefile --name depthwizard-ar-bridge --distpath dist-ar --workpath build-ar-bridge $bridge
+          if ($LASTEXITCODE -ne 0) { throw "Bridge executable build failed." }
+          python -m PyInstaller --clean --noconfirm --onefile --name depthwizard-ar-validator --distpath dist-ar --workpath build-ar-validator $validator
+          if ($LASTEXITCODE -ne 0) { throw "Validator executable build failed." }
+
+      - name: Replace bundled Windows resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "apps/desktop/src-tauri/resources/depthwizard-ar-bridge"
+          Copy-Item "dist/depthwizard-ar-export.exe" "$root/depthwizard-ar-export.exe" -Force
+          Copy-Item "dist-ar/depthwizard-ar-bridge.exe" "$root/depthwizard-ar-bridge.exe" -Force
+          Copy-Item "dist-ar/depthwizard-ar-validator.exe" "$root/depthwizard-ar-validator.exe" -Force
+          Get-Item "$root/depthwizard-ar-export.exe", "$root/depthwizard-ar-bridge.exe", "$root/depthwizard-ar-validator.exe" |
+            Select-Object Name, Length
+
+      - name: Commit refreshed resource executables to the PR branch
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- apps/desktop/src-tauri/resources/depthwizard-ar-bridge/depthwizard-ar-export.exe apps/desktop/src-tauri/resources/depthwizard-ar-bridge/depthwizard-ar-bridge.exe apps/desktop/src-tauri/resources/depthwizard-ar-bridge/depthwizard-ar-validator.exe
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Bundled executables are already current."
+            exit 0
+          }
+          git commit -m "build: refresh Windows AR bridge executables [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw "Could not commit refreshed AR tools." }
+          git fetch origin "$env:HEAD_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest PR branch tip." }
+          git rebase "origin/$env:HEAD_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw "Could not rebase refreshed AR tools onto the latest PR branch. Resolve binary-build concurrency before retrying." }
+          git push "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" "HEAD:refs/heads/$env:HEAD_BRANCH"
+
+      - name: Upload refreshed Windows resources
+        uses: actions/upload-artifact@v4
+        with:
+          name: depthwizard-windows-ar-tools
+          path: |
+            apps/desktop/src-tauri/resources/depthwizard-ar-bridge/depthwizard-ar-export.exe
+            apps/desktop/src-tauri/resources/depthwizard-ar-bridge/depthwizard-ar-bridge.exe
+            apps/desktop/src-tauri/resources/depthwizard-ar-bridge/depthwizard-ar-validator.exe
+          if-no-files-found: error
+          retention-days: 14

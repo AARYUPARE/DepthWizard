@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: depthwizard-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dependency-lock-integrity:
     name: dependency lock integrity
@@ -75,6 +79,7 @@ jobs:
           tests/test_gcp_calibration.py
           tests/test_project_export.py
           tests/test_project_manifest_integrity.py
+          tests/test_ar_measurements.py
           tests/test_problem_statement_inputs.py
 
   desktop-frontend:
