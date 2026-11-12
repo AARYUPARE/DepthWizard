@@ -50,6 +50,34 @@ type InspectorProps = {
   meshLod?: number;
   autoLod?: boolean;
   terrainPerformance?: TerrainPerformance | null;
+    arExport?: {
+    status: string;
+    projectId: string;
+    projectName: string;
+    projectPath: string;
+    modelPath: string;
+    modelSha256: string;
+    modelBytes: number;
+    elevationMode: string;
+    units: string;
+    horizontalUnits: string;
+  } | null;
+  arExporting: boolean;
+  arExportError: string | null;
+  arExportRoot: string | null;
+  blenderExe: string;
+  arBridge: {
+    status: string;
+    port: number;
+    pairingCode: string;
+    addresses: string[];
+  } | null;
+  arBridgeBusy: boolean;
+  onChooseArExportRoot: () => void;
+  onChooseBlender: () => void;
+  onExportForIpad: () => void;
+  onStartArBridge: () => void;
+  onStopArBridge: () => void;
 };
 
 function fileName(path: string): string {
@@ -94,6 +122,18 @@ export function Inspector({
   meshLod = 0,
   autoLod = true,
   terrainPerformance,
+    arExport,
+  arExporting,
+  arExportError,
+  arExportRoot,
+  blenderExe,
+  arBridge,
+  arBridgeBusy,
+  onChooseArExportRoot,
+  onChooseBlender,
+  onExportForIpad,
+  onStartArBridge,
+  onStopArBridge,
 }: InspectorProps) {
   const hasInput = metadata !== null;
   const georeferenced = Boolean(metadata?.crs);
@@ -283,6 +323,130 @@ export function Inspector({
               <strong>Export is deterministic</strong>
               <p>Use Export to create a hash-audited ZIP from the persisted project products. Source imagery remains excluded by default.</p>
             </div>
+          )}
+        </section>
+      )}
+
+            {showExport && (
+        <section className="dw-section">
+          <div className="dw-section-title">Export for iPad AR</div>
+
+          <div className="dw-validation-empty">
+            <strong>Prepare terrain for Apple AR</strong>
+            <p>
+              Convert the highest-detail terrain mesh into USDZ and make
+              it available to your paired iPad over your local network.
+            </p>
+          </div>
+
+          <div className="dw-property-list">
+            <div className="dw-property">
+              <dt>Export folder</dt>
+              <dd title={arExportRoot ?? undefined}>
+                {arExportRoot ? fileName(arExportRoot) : "Not selected"}
+              </dd>
+            </div>
+            <button
+              className="dw-btn"
+              onClick={onChooseArExportRoot}
+              disabled={arExporting || arBridgeBusy}
+            >
+              Choose folder
+            </button>
+
+            <div className="dw-property">
+              <dt>Blender</dt>
+              <dd title={blenderExe}>{fileName(blenderExe)}</dd>
+            </div>
+            <button
+              className="dw-btn"
+              onClick={onChooseBlender}
+              disabled={arExporting}
+            >
+              Select Blender
+            </button>
+          </div>
+
+          <button
+            className="dw-btn dw-btn--primary"
+            onClick={onExportForIpad}
+            disabled={!geometryReady || arExporting || !arExportRoot}
+          >
+            {arExporting ? "Preparing USDZ..." : "Export for iPad"}
+          </button>
+
+          {arExportError && (
+            <div className="dw-validation-empty">
+              <strong>AR operation failed</strong>
+              <p>{arExportError}</p>
+            </div>
+          )}
+
+          {arExport && (
+            <>
+              <dl className="dw-property-list">
+                <div className="dw-property">
+                  <dt>Project</dt>
+                  <dd>{arExport.projectName}</dd>
+                </div>
+                <div className="dw-property">
+                  <dt>Model</dt>
+                  <dd>{fileName(arExport.modelPath)}</dd>
+                </div>
+                <div className="dw-property">
+                  <dt>Size</dt>
+                  <dd>{byteLabel(arExport.modelBytes)}</dd>
+                </div>
+                <div className="dw-property">
+                  <dt>Elevation</dt>
+                  <dd>{arExport.elevationMode}</dd>
+                </div>
+                <div className="dw-property">
+                  <dt>SHA-256</dt>
+                  <dd title={arExport.modelSha256}>
+                    {arExport.modelSha256.slice(0, 16)}…
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="dw-validation-empty">
+                <strong>USDZ export ready</strong>
+                <p>Your terrain package has been validated and is ready to serve to the iPad.</p>
+              </div>
+            </>
+          )}
+
+          <div className="dw-section-title">iPad connection</div>
+
+          {arBridge ? (
+            <>
+              <div className="dw-validation-empty">
+                <strong>Bridge running</strong>
+                <p>Connect your iPad to the same local network.</p>
+                {arBridge.addresses.map((address) => (
+                  <p key={address}>
+                    {address}:{arBridge.port}
+                  </p>
+                ))}
+                <p>Pairing code: <strong>{arBridge.pairingCode}</strong></p>
+              </div>
+
+              <button
+                className="dw-btn"
+                onClick={onStopArBridge}
+                disabled={arBridgeBusy}
+              >
+                {arBridgeBusy ? "Stopping..." : "Stop bridge"}
+              </button>
+            </>
+          ) : (
+            <button
+              className="dw-btn"
+              onClick={onStartArBridge}
+              disabled={!arExportRoot || arBridgeBusy}
+            >
+              {arBridgeBusy ? "Starting bridge..." : "Start iPad connection"}
+            </button>
           )}
         </section>
       )}
