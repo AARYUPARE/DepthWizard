@@ -71,6 +71,15 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
         return False, "unsupported measurement schema version"
     if data.get("measurementCoordinateSpace") != "terrain_glb_local_bounds_v1":
         return False, "unsupported measurement coordinate-space contract"
+    if data.get("measurementPixelOrigin") != "top_left_zero_based":
+        return False, "unsupported measurement pixel origin"
+    expected_axes = {
+        "x": "raster_columns_positive",
+        "y": "mesh_elevation_up",
+        "z": "negative_raster_rows",
+    }
+    if data.get("measurementAxes") != expected_axes:
+        return False, "measurement axes do not match the terrain mesh coordinate contract"
     seen = set()
     raster_width = data.get("measurementRasterWidth")
     raster_height = data.get("measurementRasterHeight")
