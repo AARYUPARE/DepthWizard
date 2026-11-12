@@ -95,6 +95,13 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
     expected_units = "m" if product == "dsm" else "relative" if product == "rdsm" else None
     if expected_units is None or units != expected_units:
         return False, "measurement surface product and vertical units are inconsistent"
+    value_minimum = data.get("measurementValueMinimum")
+    value_maximum = data.get("measurementValueMaximum")
+    if (isinstance(value_minimum, bool) or not isinstance(value_minimum, (int, float)) or
+            not math.isfinite(value_minimum) or isinstance(value_maximum, bool) or
+            not isinstance(value_maximum, (int, float)) or not math.isfinite(value_maximum) or
+            value_maximum < value_minimum):
+        return False, "measurement elevation value range is missing or invalid"
     for point in measurements:
         if not isinstance(point, dict):
             return False, "measurement entries must be objects"
@@ -130,6 +137,12 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
             return False, "measurement normalized X does not match its source raster column"
         if not math.isclose(position["z"], expected_z, rel_tol=0.0, abs_tol=1e-6):
             return False, "measurement normalized Z does not match its source raster row"
+        if not value_minimum <= point["value"] <= value_maximum:
+            return False, "measurement value is outside the sampled elevation range"
+        value_range = value_maximum - value_minimum
+        expected_y = 0.5 if value_range <= 1e-12 else (point["value"] - value_minimum) / value_range
+        if not math.isclose(position["y"], expected_y, rel_tol=0.0, abs_tol=1e-6):
+            return False, "measurement normalized Y does not match its source elevation value"
         if ((point["pixelX"] % stride != 0 and point["pixelX"] != raster_width - 1) or
                 (point["pixelY"] % stride != 0 and point["pixelY"] != raster_height - 1)):
             return False, "measurement pixel is not a vertex in the exported LOD0 grid"
