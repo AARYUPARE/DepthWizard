@@ -126,7 +126,6 @@ fn runtime_config(state: State<'_, SidecarState>) -> RuntimeConfig {
     state.runtime.clone()
 }
 
-
 #[tauri::command]
 fn start_ar_bridge(
     app: AppHandle,
@@ -139,7 +138,12 @@ fn start_ar_bridge(
         .map_err(|_| "AR bridge state is unavailable".to_string())?;
 
     if let Some(process) = guard.as_mut() {
-        if process.child.try_wait().map_err(|e| e.to_string())?.is_none() {
+        if process
+            .child
+            .try_wait()
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
             return Ok(process.info.clone());
         }
 
@@ -382,7 +386,6 @@ async fn create_ar_project(
     .await
     .map_err(|e| format!("AR export task failed: {e}"))?
 }
-
 
 fn terminate_child(child: &mut Child) {
     let _ = child.kill();
