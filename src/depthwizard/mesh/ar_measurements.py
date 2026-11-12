@@ -162,14 +162,23 @@ def build_project_measurements(project_dir: str | Path, *, grid_size: int = 10) 
             source_rows = rows[local_rows]
             source_cols = cols[local_cols]
             candidate_values = raw[source_rows, source_cols].astype(np.float64)
-            median_value = float(np.median(candidate_values))
+            is_featured = grid_row in feature_cells and grid_col in feature_cells
+            if is_featured and (grid_row, grid_col) == (grid_size // 2, grid_size // 2):
+                target_quantile = 0.5
+            elif is_featured:
+                # Alternate robust low/high picks across the 3x3 featured grid. This preserves
+                # spatial coverage while surfacing local terrain variation in the initial view.
+                target_quantile = 0.95 if (grid_row + grid_col) % 2 == 0 else 0.05
+            else:
+                target_quantile = 0.5
+            target_value = float(np.quantile(candidate_values, target_quantile))
             center_row = (grid_row + 0.5) * raw.shape[0] / grid_size
             center_col = (grid_col + 0.5) * raw.shape[1] / grid_size
             spatial_distance = (
                 (source_rows.astype(np.float64) - center_row) ** 2
                 + (source_cols.astype(np.float64) - center_col) ** 2
             )
-            chosen = int(np.lexsort((spatial_distance, np.abs(candidate_values - median_value)))[0])
+            chosen = int(np.lexsort((spatial_distance, np.abs(candidate_values - target_value)))[0])
             row = int(source_rows[chosen])
             col = int(source_cols[chosen])
             value = float(raw[row, col])
