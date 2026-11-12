@@ -98,6 +98,7 @@ def test_measurements_are_spread_and_map_to_lod0_vertices(tmp_path: Path) -> Non
     assert report.coordinate_space == "terrain_glb_local_bounds_v1"
     assert report.surface_product == "dsm"
     assert report.vertical_units == "m"
+    assert report.value_minimum <= report.value_maximum
     assert report.raster_width == values.shape[1]
     assert report.raster_height == values.shape[0]
     assert 80 <= len(report.points) <= 100
@@ -123,7 +124,7 @@ def test_measurements_are_spread_and_map_to_lod0_vertices(tmp_path: Path) -> Non
         assert point.type == "dsm"
         assert np.isclose(point.normalized_position.x, point.pixel_x / (values.shape[1] - 1))
         assert np.isclose(point.normalized_position.z, 1.0 - point.pixel_y / (values.shape[0] - 1))
-        expected_y = (point.value - mesh_min) / (mesh_max - mesh_min)
+        expected_y = (point.value - report.value_minimum) / (report.value_maximum - report.value_minimum)
         assert np.isclose(point.normalized_position.y, expected_y)
 
 
@@ -154,5 +155,9 @@ def test_measurement_service_endpoint_returns_contract(tmp_path: Path) -> None:
     assert payload["coordinate_space"] == "terrain_glb_local_bounds_v1"
     assert payload["pixel_origin"] == "top_left_zero_based"
     assert payload["surface_product"] == "dsm"
+    assert len(payload["surface_sha256"]) == 64
+    assert len(payload["mesh_sha256"]) == 64
+    assert len(payload["build_config_sha256"]) == 64
+    assert payload["value_minimum"] <= payload["value_maximum"]
     assert len(payload["points"]) > 0
     assert "normalized_position" in payload["points"][0]
