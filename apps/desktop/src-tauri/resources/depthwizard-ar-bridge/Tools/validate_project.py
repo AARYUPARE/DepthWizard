@@ -82,6 +82,16 @@ def validate_measurements(data: dict) -> tuple[bool, str]:
         return False, "measurement mesh stride is missing or invalid"
     product = data.get("surfaceProduct")
     units = data.get("verticalUnits", data.get("units"))
+    for key in (
+        "measurementSourceSurfaceSha256",
+        "measurementMeshSha256",
+        "measurementBuildConfigSha256",
+    ):
+        digest = data.get(key)
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            return False, f"{key} must be a lowercase SHA-256 digest"
+    if data.get("measurementMeshSha256") != data.get("sourceMeshSha256"):
+        return False, "measurement metadata does not identify the exported source mesh"
     expected_units = "m" if product == "dsm" else "relative" if product == "rdsm" else None
     if expected_units is None or units != expected_units:
         return False, "measurement surface product and vertical units are inconsistent"
